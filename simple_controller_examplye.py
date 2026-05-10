@@ -14,6 +14,7 @@ MAX_ANGLE = 0.5
 MAX_SPEED = 250
 SPEED_INCR = 5
 ANGLE_INCR = 0.05
+MIN_ABS_SLOPE = 0.3
 
 #Getting image from camera
 def get_image(camera):
@@ -75,6 +76,33 @@ def hough_lines(roi_edges):
     )
     return lines
 
+## Function to filter the lines by slope.
+def filter_lines_by_slope(lines, min_abs_slope=MIN_ABS_SLOPE):
+    if lines is None:
+        return None
+
+    filtered_lines = []
+
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+
+        ##Double check for vertical lines avoiding errors. 
+        if x2 == x1:
+            continue
+
+        slope = (y2 - y1) / (x2 - x1)
+
+        # Reject nearly horizontal lines such as crosswalk markings.
+        if abs(slope) < min_abs_slope:
+            continue
+        ## Append the lines that passed the horizontal filter
+        filtered_lines.append(line)
+
+    if not filtered_lines:
+        return None
+    ## Return filtered lines. 
+    return np.array(filtered_lines)
+
 def draw_lines(image, lines): 
     line_image = np.zeros_like(image)
     if lines is not None: 
@@ -113,22 +141,25 @@ def compute_lane_center(lines):
         slope = (y2-y1) / (x2 - x1)
 
         ## Insignificant change in slope. 
-        if abs(slope) < .3: 
-            continue
-        
-        
+        ## Save all the points
         all_points.extend([x1, x2])
 
+        ##Depending on the slope, save the lines
         if slope < 0: 
             left_points.extend([x1,x2])
         else: 
             right_points.extend([x1, x2])
 
+    ## Calculates the average between the left and 
+    ## right positions. 
     if left_points and right_points:
         left_x = np.mean(left_points)
         right_x = np.mean(right_points)
         return (left_x + right_x) / 2.0
     
+    ## Calculates the mean of all the points
+    ## returns the value if there are no points 
+    ## in left or right points.
     if all_points:
         return np.mean(all_points)
 
@@ -140,8 +171,8 @@ def main():
     speed = 50
     last_press = {}
     kp = 0.35
-    ki = 0.0
-    kd = 0.05
+    ki = 0.08
+    kd = 0.01
     integral = 0.0
     previous_error = 0.0
     previous_time = time.time()
@@ -186,8 +217,8 @@ def main():
         roi_edges = region_of_interest(canny)
 
         ##Hough lines
-        lines = hough_lines(roi_edges)
-        lane_center_x = compute_lane_center(lines, display_w)
+        lines = filter_lines_by_slope(hough_lines(roi_edges))
+        lane_center_x = compute_lane_center(lines)
 
         current_time = time.time()
         dt = current_time - previous_time
